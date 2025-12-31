@@ -6,15 +6,27 @@ from datetime import datetime
 # Create Modal app
 app = modal.App("jobzilla-embeddings")
 
+# Download Nomic model during image build to avoid cold start delays
+def download_nomic_model():
+    """Download and cache the Nomic embedding model during image build."""
+    from sentence_transformers import SentenceTransformer
+    print("Downloading nomic-ai/nomic-embed-text-v1.5 model...")
+    SentenceTransformer("nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True)
+    print("Model download complete!")
+
+
 # Define image with embedding model dependencies
+# Bake model weights into the Docker image at build time
 embedding_image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install(
         "torch==2.1.0",
         "transformers==4.35.0",
-        "sentence-transformers==2.2.2",
+        "sentence-transformers==3.0.1",  # Upgraded for trust_remote_code support
         "numpy==1.24.3",
+        "einops",  # Required by nomic-ai/nomic-embed-text-v1.5
     )
+    .run_function(download_nomic_model)  # Cache model in image
 )
 
 # Image for general tasks (API calls, DB operations)
@@ -84,10 +96,15 @@ def fetch_jobs_from_jsearch(query: str = "software engineer", num_pages: int = 1
 )
 def generate_embeddings(texts: List[str]) -> List[List[float]]:
     """
-    Generate embeddings for a batch of texts using sentence-transformers.
+    Generate embeddings for a batch of texts using Nomic's embedding model.
+
+    Model: nomic-ai/nomic-embed-text-v1.5
+    - 8192 token context window (handles 2-3 page documents)
+    - 137M parameters
+    - Optimized for semantic search and retrieval
 
     Args:
-        texts: List of text strings to embed
+        texts: List of text strings to embed (job descriptions, resumes, etc.)
 
     Returns:
         List of embedding vectors (each is a list of floats)
@@ -95,13 +112,18 @@ def generate_embeddings(texts: List[str]) -> List[List[float]]:
     from sentence_transformers import SentenceTransformer
     import numpy as np
 
-    # Load the model (cached after first run)
-    model = SentenceTransformer('all-MiniLM-L6-v2')
+    # Load the Nomic model (already cached in image from build)
+    model = SentenceTransformer('nomic-ai/nomic-embed-text-v1.5', trust_remote_code=True)
 
-    print(f"Generating embeddings for {len(texts)} texts")
+    print(f"Generating embeddings for {len(texts)} texts using Nomic v1.5")
 
-    # Generate embeddings
-    embeddings = model.encode(texts, show_progress_bar=True)
+    # Generate embeddings with batching for GPU efficiency
+    # sentence-transformers handles batching automatically based on available VRAM
+    embeddings = model.encode(
+        texts,
+        show_progress_bar=True,
+        batch_size=32,  # Adjust based on T4 VRAM (16GB) and doc size
+    )
 
     # Convert to list of lists for JSON serialization
     return embeddings.tolist()

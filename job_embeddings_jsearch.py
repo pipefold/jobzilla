@@ -44,7 +44,7 @@ base_image = (
     secrets=[modal.Secret.from_name("rapidapi-secret")],
     timeout=300,
 )
-def fetch_jobs_from_jsearch(query: str = "software engineer", num_pages: int = 1) -> List[Dict[str, Any]]:
+def fetch_jobs_from_jsearch(query: str = "ai engineer london", num_pages: int = 10) -> List[Dict[str, Any]]:
     """
     Fetch job listings from JSearch API (RapidAPI).
 
@@ -56,6 +56,7 @@ def fetch_jobs_from_jsearch(query: str = "software engineer", num_pages: int = 1
         List of job dictionaries with title, description, and metadata
     """
     import httpx
+    import time
 
     rapidapi_key = os.environ["RAPIDAPI_KEY"]
 
@@ -66,6 +67,7 @@ def fetch_jobs_from_jsearch(query: str = "software engineer", num_pages: int = 1
     }
 
     all_jobs = []
+    consecutive_empty_pages = 0
 
     for page in range(1, num_pages + 1):
         params = {
@@ -83,7 +85,20 @@ def fetch_jobs_from_jsearch(query: str = "software engineer", num_pages: int = 1
 
             jobs = data.get("data", [])
             print(f"Found {len(jobs)} jobs on page {page}")
-            all_jobs.extend(jobs)
+
+            if not jobs:
+                consecutive_empty_pages += 1
+                # Stop if we hit 2 consecutive empty pages (no more jobs available)
+                if consecutive_empty_pages >= 2:
+                    print(f"Stopping early: {consecutive_empty_pages} consecutive empty pages")
+                    break
+            else:
+                consecutive_empty_pages = 0
+                all_jobs.extend(jobs)
+
+        # Add delay between requests to avoid rate limiting (skip after last page)
+        if page < num_pages:
+            time.sleep(0.5)
 
     print(f"Total jobs fetched: {len(all_jobs)}")
     return all_jobs
@@ -168,26 +183,35 @@ def store_jobs_in_supabase(jobs: List[Dict[str, Any]], embeddings: List[List[flo
             "employment_type": job.get("job_employment_type"),
             "posted_at": job.get("job_posted_at_datetime_utc"),
             "apply_link": job.get("job_apply_link"),
+            "source": "JSearch",
             "embedding": embedding,
             "fetched_at": datetime.utcnow().isoformat(),
         }
         records.append(record)
 
+    # Deduplicate records by job_id (keep last occurrence)
+    unique_records = {}
+    for record in records:
+        unique_records[record["job_id"]] = record
+    deduplicated_records = list(unique_records.values())
+
+    print(f"Deduplicated {len(records)} jobs to {len(deduplicated_records)} unique jobs")
+
     # Insert into Supabase (assuming table name is 'jobs')
     # Using upsert to handle duplicates by job_id
     try:
         supabase.table("jobs").upsert(
-            records,
+            deduplicated_records,
             on_conflict="job_id"
         ).execute()
-        print(f"Successfully stored {len(records)} jobs")
+        print(f"Successfully stored {len(deduplicated_records)} unique jobs")
     except Exception as e:
         print(f"Error storing jobs: {e}")
         raise
 
 
 @app.local_entrypoint()
-def main(query: str = "software engineer", num_pages: int = 1):
+def main(query: str = "ai engineer london", num_pages: int = 10):
     """
     Main pipeline: Fetch jobs, generate embeddings, store in Supabase.
 

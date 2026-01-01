@@ -39,3 +39,14 @@ Thumbs.db
 
 # Modal
 .modal/
+
+# Personal data
+resume.json
+*.resume.json
+
+# Local data directory
+data/
+tmp/
+
+# Local MCP configuration (use .mcp.json.example as template)
+.mcp.json

@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS jobs (
     employment_type TEXT,
     posted_at TIMESTAMPTZ,
     apply_link TEXT,
+    salary_min NUMERIC,
+    salary_max NUMERIC,
+    salary_is_predicted INTEGER,  -- 0 = actual, 1 = predicted
     source TEXT,  -- Source of job listing (e.g., 'JSearch', 'Adzuna', 'LinkedIn')
     embedding vector(768),  -- Nomic v1.5 produces 768-dimensional embeddings
     fetched_at TIMESTAMPTZ DEFAULT NOW(),
@@ -31,6 +34,7 @@ USING hnsw (embedding vector_cosine_ops);
 CREATE INDEX IF NOT EXISTS jobs_job_id_idx ON jobs(job_id);
 CREATE INDEX IF NOT EXISTS jobs_posted_at_idx ON jobs(posted_at);
 CREATE INDEX IF NOT EXISTS jobs_source_idx ON jobs(source);
+CREATE INDEX IF NOT EXISTS jobs_salary_max_idx ON jobs(salary_max DESC NULLS LAST);
 
 
 -- Resumes table: Stores JSON Resume documents with embeddings
@@ -72,6 +76,9 @@ RETURNS TABLE (
     location TEXT,
     description TEXT,
     apply_link TEXT,
+    salary_min NUMERIC,
+    salary_max NUMERIC,
+    salary_is_predicted INTEGER,
     source TEXT,
     similarity FLOAT
 )
@@ -84,6 +91,9 @@ AS $$
         jobs.location,
         jobs.description,
         jobs.apply_link,
+        jobs.salary_min,
+        jobs.salary_max,
+        jobs.salary_is_predicted,
         jobs.source,
         1 - (jobs.embedding <=> query_embedding) as similarity
     FROM jobs

@@ -49,6 +49,7 @@ def fetch_jobs_from_adzuna(
     where: str = "london",
     country: str = "gb",
     num_pages: int = 10,
+    sort_by: str = "date",
 ) -> List[Dict[str, Any]]:
     """
     Fetch job listings from Adzuna API.
@@ -60,6 +61,7 @@ def fetch_jobs_from_adzuna(
         where: Location (city, region, etc.)
         country: Country code (gb, us, au, etc.)
         num_pages: Number of pages to fetch (each page has up to 50 jobs)
+        sort_by: Sort order - 'date' (freshest), 'salary' (highest paid), or omit for relevance
 
     Returns:
         List of job dictionaries with title, description, and metadata
@@ -83,6 +85,7 @@ def fetch_jobs_from_adzuna(
             "what": what,
             "where": where,
             "results_per_page": 50,  # Max results per page
+            "sort_by": sort_by,
             "content-type": "application/json",
         }
 
@@ -194,6 +197,9 @@ def store_jobs_in_supabase(jobs: List[Dict[str, Any]], embeddings: List[List[flo
             "employment_type": job.get("contract_type"),
             "posted_at": job.get("created"),
             "apply_link": job.get("redirect_url"),
+            "salary_min": job.get("salary_min"),
+            "salary_max": job.get("salary_max"),
+            "salary_is_predicted": job.get("salary_is_predicted"),
             "source": "Adzuna",
             "embedding": embedding,
             "fetched_at": datetime.utcnow().isoformat(),
@@ -227,6 +233,7 @@ def main(
     where: str = "london",
     country: str = "gb",
     num_pages: int = 10,
+    sort_by: str = "date",
 ):
     """
     Main pipeline: Fetch jobs from Adzuna, generate embeddings, store in Supabase.
@@ -234,8 +241,10 @@ def main(
     Usage:
         modal run job_embeddings_adzuna.py
         modal run job_embeddings_adzuna.py --what "python developer" --where "manchester" --num-pages 5
+        modal run job_embeddings_adzuna.py --what "ai engineer" --sort-by "salary"
     """
     print(f"Starting Adzuna job embeddings pipeline for '{what}' in '{where}' ({country})")
+    print(f"Sorting by: {sort_by}")
 
     # Step 1: Fetch jobs from Adzuna
     print("\n[1/3] Fetching jobs from Adzuna...")
@@ -244,6 +253,7 @@ def main(
         where=where,
         country=country,
         num_pages=num_pages,
+        sort_by=sort_by,
     )
 
     if not jobs:

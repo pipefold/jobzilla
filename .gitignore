@@ -40,6 +40,9 @@ Thumbs.db
 # Modal
 .modal/
 
+# Claude Code
+.claude/
+
 # Personal data
 resume.json
 *.resume.json
